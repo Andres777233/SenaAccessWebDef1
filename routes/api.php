@@ -12,6 +12,7 @@ use App\Http\Controllers\NotificacionController;
 use App\Http\Controllers\TwoFactorController;
 use App\Http\Controllers\ChatbotController;
 use App\Http\Controllers\AccesoQrController;
+use App\Http\Controllers\PrediccionController;
 
 /*
 |--------------------------------------------------------------------------
@@ -138,6 +139,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // QR rotativo de portería: mostrar (admin/superadmin) y validar (cualquiera).
     Route::get('/acceso/qr/{tipo}', [AccesoQrController::class, 'mostrar'])->middleware('admin_or_portero');
     Route::post('/acceso/validar', [AccesoQrController::class, 'validar']);
+    // PIN corto de acceso: portería lo genera y el aprendiz lo digita sin cámara.
+    Route::post('/admin/pines-acceso', [AccesoQrController::class, 'generarPin'])->middleware('admin_or_portero');
+    Route::post('/acceso/validar-pin', [AccesoQrController::class, 'validarPin']);
 
     // Ambientes (admin crea, instructor gestiona sus ambientes/aprendices).
     Route::get('/ambientes', [AmbienteController::class, 'index']);
@@ -148,6 +152,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Gestión de ambientes (solo admin).
     Route::middleware('admin')->group(function () {
+        Route::get('/admin/prediccion', [PrediccionController::class, 'indice']);
         Route::post('/admin/ambientes', [AmbienteController::class, 'store']);
         Route::put('/admin/ambientes/{id}', [AmbienteController::class, 'update']);
         Route::delete('/admin/ambientes/{id}', [AmbienteController::class, 'destroy']);
@@ -162,6 +167,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/instructor/excusas', [ExcusaController::class, 'misComoInstructor']);
     Route::delete('/instructor/excusas/{id}', [ExcusaController::class, 'anular']);
     Route::get('/mis-excusas', [ExcusaController::class, 'misExcusas']);
+    // El aprendiz limpia su historial: solo excusas ya cerradas (usada/expirada/anulada).
+    Route::delete('/mis-excusas/{id}', [ExcusaController::class, 'eliminarMisExcusa']);
     Route::post('/excusas/validar', [ExcusaController::class, 'validar'])->middleware('throttle:pin');
     Route::middleware('admin_or_portero')->group(function () {
         Route::get('/admin/excusas', [ExcusaController::class, 'indexAdmin']);
