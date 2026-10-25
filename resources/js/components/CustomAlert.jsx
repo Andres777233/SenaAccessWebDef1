@@ -62,8 +62,6 @@ const CustomAlert = () => {
         };
     }, []);
 
-    if (!state.visible) return null;
-
     const handleAction = (value) => {
         setState(prev => ({ ...prev, visible: false }));
         if (state.resolve) {
@@ -71,12 +69,27 @@ const CustomAlert = () => {
         }
     };
 
+    // Escape cierra la alerta (o cancela la confirmacion).
+    // OJO: este useEffect va antes del "return null"; si se ejecuta despues,
+    // React ve mas hooks que en el render anterior (#310) y desmonta la app
+    // completa dejando la pantalla en blanco.
+    useEffect(() => {
+        if (!state.visible) return undefined;
+        const alPresionar = (e) => {
+            if (e.key === 'Escape') handleAction(!state.isConfirm);
+        };
+        window.addEventListener('keydown', alPresionar);
+        return () => window.removeEventListener('keydown', alPresionar);
+    }, [state.visible, state.isConfirm]);
+
+    if (!state.visible) return null;
+
     const isSuccess = state.type === 'success';
     const isError = state.type === 'error';
     const isWarning = state.type === 'warning';
 
     return (
-        <div className="custom-alert-overlay" style={{
+        <div className="custom-alert-overlay" role="dialog" aria-modal="true" aria-label="Aviso del sistema" style={{
             position: 'fixed',
             inset: 0,
             zIndex: 99999,
@@ -128,7 +141,7 @@ const CustomAlert = () => {
                     {isSuccess ? '¡Éxito!' : isError ? '¡Atención!' : '¿Confirmar Acción?'}
                 </h3>
                 
-                <p className="theme-text mb-4 opacity-90" style={{ fontSize: '0.95rem', lineHeight: '1.6', wordBreak: 'break-word' }}>
+                <p className="theme-text mb-4 opacity-75" style={{ fontSize: '0.95rem', lineHeight: '1.6', wordBreak: 'break-word' }}>
                     {state.message}
                 </p>
 

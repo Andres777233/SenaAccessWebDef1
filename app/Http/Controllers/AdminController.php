@@ -19,6 +19,9 @@ use App\Models\Excusa;
 use App\Models\Notificacion;
 use App\Models\TokenRecovery;
 use App\Models\TwoFactorChallenge;
+use App\Models\PinAcceso;
+use App\Models\Passkey;
+use App\Models\WebauthnChallenge;
 use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
@@ -69,6 +72,11 @@ class AdminController extends Controller
 
     public function getIngresos(Request $request)
     {
+        $request->validate([
+            'desde' => 'nullable|date',
+            'hasta' => 'nullable|date',
+        ]);
+
         $query = Ingreso::with('user');
 
         if ($request->filled('tipo')) {
@@ -164,9 +172,18 @@ class AdminController extends Controller
         return response()->json($resultado);
     }
 
-    public function exportIngresos(Request $request)
+    public function exportIngresos(Request $request, ?int $soloUsuario = null)
     {
+        $request->validate([
+            'desde' => 'nullable|date',
+            'hasta' => 'nullable|date',
+        ]);
+
         $query = Ingreso::with('user');
+
+        if ($soloUsuario) {
+            $query->where('fk_id_user', $soloUsuario);
+        }
 
         if ($request->filled('tipo')) {
             $query->where('ingreso_type', $request->tipo);
@@ -334,6 +351,12 @@ class AdminController extends Controller
         }, $base . '.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 
+    // Exporta el historial del usuario autenticado (mismos formatos/filtros).
+    public function exportMyIngresos(Request $request)
+    {
+        return $this->exportIngresos($request, $request->user()->id_usuario);
+    }
+
     public function stats()
     {
         $hoy = Carbon::now('America/Bogota')->toDateString();
@@ -401,6 +424,10 @@ class AdminController extends Controller
 
     public function createUser(Request $request)
     { //VALIDACIONES PARA EL REGISTRO DE USUARIOS
+        $request->merge([
+            'user_email' => strtolower(trim((string) $request->input('user_email'))),
+        ]);
+
         // Solo el Aprendiz tiene ficha y programa obligatorios.
         $esAprendiz = strcasecmp(Role::find($request->fk_id_rol)?->rol_name ?? '', 'Aprendiz') === 0; //VERIFICA SI EL ROL ES APRENDIZ
         $request->validate([
@@ -417,13 +444,16 @@ class AdminController extends Controller
                     $fail('El correo debe ser @gmail.com, @hotmail.com, @outlook.com o @soy.sena.edu.co.');
                 },
             ],
-            'user_password' => 'required', //VALIDA QUE LA CONTRASEÑA EXISTA
+            'user_password' => 'required|string|min:8', //VALIDA QUE LA CONTRASEÑA EXISTA
             'user_coursenumber' => $esAprendiz ? 'required' : 'nullable', //FICHA SOLO OBLIGATORIA PARA APRENDIZ
             'user_program' => $esAprendiz ? 'required' : 'nullable', //PROGRAMA SOLO OBLIGATORIO PARA APRENDIZ
             'user_documento_tipo' => 'required|in:CC,CE,TI,PAS',
             'user_telefono' => 'nullable|string|max:20',
             'fk_id_rol' => 'required|exists:roles,id_rol',
             'image' => 'nullable|image|max:5120',
+        ], [
+            'user_coursenumber.required' => 'La ficha es obligatoria para un aprendiz.',
+            'user_program.required' => 'El programa es obligatorio para un aprendiz.',
         ]);
 
         $profile_photo_path = null; //VALIDA QUE LA IMAGEN NO SE REPITAN
@@ -487,6 +517,18 @@ class AdminController extends Controller
             return response()->json(['message' => 'No puedes eliminar tu propia cuenta.'], 403);
         }
         $user = User::findOrFail($id);
+        $user->loadMissing('role');
+
+        // El sistema no puede quedarse sin superadministrador.
+        if (strtolower($user->role?->rol_name ?? '') === 'superadmin') {
+            $hayOtro = User::whereHas('role', fn ($q) => $q->where('rol_name', 'Superadmin'))
+                ->where('id_usuario', '!=', $user->id_usuario)
+                ->exists();
+            if (!$hayOtro) {
+                return response()->json(['message' => 'No puedes eliminar al último superadministrador.'], 422);
+            }
+        }
+
         DB::transaction(function () use ($user) { //TODO JUNTO O NADA: si algo falla no queda medio borrado
             $uid = $user->id_usuario;
             $user->tokens()->delete(); //SESIONES SANCTUM
@@ -497,6 +539,9 @@ class AdminController extends Controller
             Novedad::where('fk_id_usuario', $uid)->delete(); //NOVEDADES
             Excusa::where('fk_id_aprendiz', $uid)->orWhere('fk_id_instructor', $uid)->delete(); //EXCUSAS
             Notificacion::where('fk_id_usuario', $uid)->delete(); //NOTIFICACIONES
+            PinAcceso::where('fk_creado_por', $uid)->delete(); //PINES CREADOS (FK sin cascade)
+            Passkey::where('fk_id_usuario', $uid)->delete(); //HUELLAS WEB
+            WebauthnChallenge::where('fk_id_usuario', $uid)->delete(); //RETOS WEBAUTHN
             DB::table('ambiente_aprendiz')->where('fk_id_usuario', $uid)->delete(); //PIVOTES DE AMBIENTES
             DB::table('ambiente_instructor')->where('fk_id_instructor', $uid)->delete();
             if (\Illuminate\Support\Facades\Schema::hasTable('aprendiz_instructor')) {
@@ -509,9 +554,15 @@ class AdminController extends Controller
 
     public function updateUser(Request $request, $id) //FUNCION PARA ACTUALIZAR USUARIO
     {
+        $request->merge([
+            'user_email' => strtolower(trim((string) $request->input('user_email'))),
+        ]);
+
         $user = User::findOrFail($id); //BUSCA EL USUARIO POR ID
+        $user->loadMissing('role');
         // Solo el Aprendiz tiene ficha y programa obligatorios.
-        $esAprendiz = strcasecmp(Role::find($request->fk_id_rol)?->rol_name ?? '', 'Aprendiz') === 0; //VERIFICA SI EL ROL ES APRENDIZ
+        $nuevoRol = Role::find($request->fk_id_rol);
+        $esAprendiz = strcasecmp($nuevoRol?->rol_name ?? '', 'Aprendiz') === 0; //VERIFICA SI EL ROL ES APRENDIZ
         
         $request->validate([
             'user_identification' => 'required|string|max:20|unique:usuarios,user_identification,' . $id . ',id_usuario',
@@ -532,14 +583,30 @@ class AdminController extends Controller
                     $fail('El correo debe ser @gmail.com, @hotmail.com, @outlook.com o @soy.sena.edu.co.');
                 },
             ],
-            'user_password' => 'nullable|min:6',
+            'user_password' => 'nullable|string|min:8',
             'user_coursenumber' => $esAprendiz ? 'required' : 'nullable', //FICHA SOLO OBLIGATORIA PARA APRENDIZ
             'user_program' => $esAprendiz ? 'required' : 'nullable', //PROGRAMA SOLO OBLIGATORIO PARA APRENDIZ
             'user_documento_tipo' => 'required|in:CC,CE,TI,PAS',
             'user_telefono' => 'nullable|string|max:20',
             'fk_id_rol' => 'required|exists:roles,id_rol',
             'image' => 'nullable|image|max:5120',
+        ], [
+            'user_coursenumber.required' => 'La ficha es obligatoria para un aprendiz.',
+            'user_program.required' => 'El programa es obligatorio para un aprendiz.',
         ]);
+
+        // Un superadmin no puede degradarse si es el último que queda.
+        $eraSuperadmin = strtolower($user->role?->rol_name ?? '') === 'superadmin';
+        $seraSuperadmin = strcasecmp($nuevoRol?->rol_name ?? '', 'Superadmin') === 0;
+        if ($eraSuperadmin && !$seraSuperadmin) {
+            $hayOtro = User::whereHas('role', fn ($q) => $q->where('rol_name', 'Superadmin'))
+                ->where('id_usuario', '!=', $user->id_usuario)
+                ->exists();
+            if (!$hayOtro) {
+                return response()->json(['message' => 'No puedes quitarle el rol al último superadministrador.'], 422);
+            }
+        }
+
         //ACTUALIZA LA IMAGEN DEL USUARIO
         if ($request->hasFile('image')) { //VALIDA QUE LA IMAGEN EXISTA
             $profile_photo_path = $request->file('image')->storeOnCloudinary('avatars')->getSecurePath();
@@ -595,6 +662,10 @@ class AdminController extends Controller
 
     public function updateMyProfile(Request $request) //FUNCION PARA ACTUALIZAR MI PERFIL
     {
+        $request->merge([
+            'user_email' => strtolower(trim((string) $request->input('user_email'))),
+        ]);
+
         $user = $request->user(); //OBTIENE EL USUARIO ACTUAL
         $user->loadMissing('role'); //ASEGURA LA RELACION CON EL ROL
         // Solo el Aprendiz tiene ficha y programa; admin e instructor los dejan en null.
@@ -620,7 +691,7 @@ class AdminController extends Controller
                     $fail('El correo debe ser @gmail.com, @hotmail.com, @outlook.com o @soy.sena.edu.co.');
                 },
             ], //VALIDA QUE EL CORREO EXISTA
-            'user_password' => 'nullable|min:6', //VALIDA QUE LA CONTRASEÑA EXISTA
+            'user_password' => 'nullable|string|min:8', //VALIDA QUE LA CONTRASEÑA EXISTA
             'two_factor_code' => 'nullable|string|size:6', //CODIGO 2FA PARA CAMBIO DE CLAVE
             'user_coursenumber' => $esAprendiz ? 'required' : 'nullable', //FICHA SOLO OBLIGATORIA PARA APRENDIZ
             'user_program' => $esAprendiz ? 'required' : 'nullable', //PROGRAMA SOLO OBLIGATORIO PARA APRENDIZ

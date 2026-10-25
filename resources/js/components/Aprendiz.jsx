@@ -7,12 +7,29 @@ import StatsDashboard from './StatsDashboard';
 import Excusas from './Excusas';
 import DosPasos from './DosPasos';
 import MiHuella from './MiHuella';
+import SimulacionHuella from './SimulacionHuella';
 import UserQrCarnet from './UserQrCarnet';
 import EscanearAcceso from './EscanearAcceso';
-import RecorteFoto from './RecorteFoto';
+import PerfilSena from './PerfilSena';
+import EditarMiPerfil from './EditarMiPerfil';
+import ModalExportar from './ModalExportar';
 import { showAlert } from './CustomAlert';
 import downloadComprobante from '../utils/comprobante';
+import { descargarArchivo, nombreExportado } from '../utils/exportar';
 import { mensajeDeError } from '../utils/mensajes';
+
+const diaBogota = (valor) => {
+    try {
+        return new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Bogota',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        }).format(new Date(valor));
+    } catch (_) {
+        return '';
+    }
+};
 
 const Aprendiz = () => {
     const navigate = useNavigate();
@@ -21,23 +38,17 @@ const Aprendiz = () => {
     const [ingresos, setIngresos] = useState([]);
     const [equipmentList, setEquipmentList] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [searchTermIngresos, setSearchTermIngresos] = useState('');
+    const [filterTipo, setFilterTipo] = useState('');
+    const [filterDesde, setFilterDesde] = useState('');
+    const [filterHasta, setFilterHasta] = useState('');
+    const [exportAbierto, setExportAbierto] = useState(false);
+    const [exportFormato, setExportFormato] = useState('pdf');
+    const [exportando, setExportando] = useState(false);
+    const [exportEquiposAbierto, setExportEquiposAbierto] = useState(false);
+    const [exportEquiposFormato, setExportEquiposFormato] = useState('pdf');
+    const [exportEquiposExportando, setExportEquiposExportando] = useState(false);
     const [editingProfile, setEditingProfile] = useState(false);
-    const [profileErrors, setProfileErrors] = useState({});
-    const [fotoBlob, setFotoBlob] = useState(null);
-    const [fotoPreview, setFotoPreview] = useState(null);
-    const [archivoRecorte, setArchivoRecorte] = useState(null);
-    const [codigo2fa, setCodigo2fa] = useState('');
-    const [codigoSolicitado, setCodigoSolicitado] = useState(false);
-    const [formData, setFormData] = useState({
-        user_identification: '',
-        user_name: '',
-        user_lastname: '',
-        user_email: '',
-        user_password: '',
-        user_coursenumber: '',
-        user_program: ''
-    });
-
     useEffect(() => { // Logica para cargar los datos del usuario, haciendo el uso de useEffect
         const fetchData = async () => {
             try {
@@ -57,16 +68,6 @@ const Aprendiz = () => {
                 setIngresos(ingresosResponse.data);
                 setEquipmentList(equipmentResponse.data);
 
-                setFormData({ // Set inicial del formulario de edición de perfil con los datos obtenidos del backend, permitiendo que el usuario vea su información actual y pueda editarla fácilmente sin tener que ingresar todos los datos desde cero
-                    user_identification: userMeResponse.data.user_identification || '',
-                    user_name: userMeResponse.data.user_name,
-                    user_lastname: userMeResponse.data.user_lastname,
-                    user_email: userMeResponse.data.user_email,
-                    user_password: '',
-                    user_coursenumber: userMeResponse.data.user_coursenumber,
-                    user_program: userMeResponse.data.user_program,
-                    profile_photo_path: userMeResponse.data.profile_photo_path || null
-                });
             } catch (error) { // catch para manejar errores en la carga de los datos 
                 console.error('Error cargando datos: ', error);
                 if (error.response && error.response.status === 401) {
@@ -127,180 +128,67 @@ const Aprendiz = () => {
         };
     }, [view]);
 
-    const handleChange = (e) => {
-        setFormData({
-            ...formData,
-            [e.target.name]: e.target.value
-        });
-        if (profileErrors[e.target.name]) {
-            setProfileErrors(prev => {
-                const next = { ...prev };
-                delete next[e.target.name];
-                return next;
-            });
-        }
-    };
-
-    // Guarda el perfil en PUT /api/my-profile (multipart + _method=PUT).
-    // Si cambia la clave con 2FA activo, el backend responde 422 con
-    // errors.two_factor_code y envia el codigo al correo: se muestra el
-    // campo del codigo y al reenviar se incluye two_factor_code.
-    const handleUpdateProfile = async (e) => {
-        e.preventDefault();
-        try {
-            const data = new FormData();
-            data.append('user_identification', formData.user_identification);
-            data.append('user_name', formData.user_name);
-            data.append('user_lastname', formData.user_lastname);
-            data.append('user_email', formData.user_email);
-            if (formData.user_password) data.append('user_password', formData.user_password);
-            if (codigo2fa) data.append('two_factor_code', codigo2fa);
-            data.append('user_coursenumber', formData.user_coursenumber);
-            data.append('user_program', formData.user_program);
-            if (fotoBlob) data.append('image', fotoBlob, 'foto.jpg');
-            data.append('_method', 'PUT');
-
-            const response = await axios.post('/api/my-profile', data, {
-                headers: {
-                    'Content-Type': 'multipart/form-data'
-                }
-            });
-
-            setCurrentUser(response.data);
-            showAlert('Perfil actualizado con éxito');
-            setProfileErrors({});
-            setEditingProfile(false);
-            setFotoBlob(null);
-            setFotoPreview(null);
-            setArchivoRecorte(null);
-            setCodigo2fa('');
-            setCodigoSolicitado(false);
-        } catch (error) {
-            if (error.response?.data?.errors) {
-                setProfileErrors(error.response.data.errors);
-            }
-            if (error.response?.data?.errors?.two_factor_code) {
-                setCodigoSolicitado(true);
-                showAlert(error.response?.data?.message || 'Revisa tu correo e ingresa el código de 6 dígitos.');
-            } else {
-                showAlert('Error al actualizar perfil: ' + (error.response?.data?.message || 'Error desconocido'), 'error');
-            }
-        }
-    };
-
-    // Limpia el formulario de perfil (foto recortada y codigo 2FA incluidos).
-    const cancelarEdicionPerfil = () => {
-        setEditingProfile(false);
-        setFotoBlob(null);
-        setFotoPreview(null);
-        setArchivoRecorte(null);
-        setCodigo2fa('');
-        setCodigoSolicitado(false);
-    };
+    const cancelarEdicionPerfil = () => setEditingProfile(false);
 
     if (loading) return <div className="text-white text-center mt-5">Cargando...</div>;
 
-    const profileFieldError = (name) => (
-        profileErrors[name] ? <div className="text-danger small mt-1"><span className="material-symbols-outlined small me-1">error</span>{profileErrors[name][0]}</div> : null
-    );
+
+    const filteredIngresos = ingresos.filter((ingreso) => {
+        if (filterTipo && ingreso.ingreso_type !== filterTipo) return false;
+        const dia = diaBogota(ingreso.ingreso_datetime);
+        if (filterDesde && dia < filterDesde) return false;
+        if (filterHasta && dia > filterHasta) return false;
+        const q = searchTermIngresos.trim().toLowerCase();
+        if (!q) return true;
+        return `${ingreso.ingreso_place || ''} ${ingreso.ingreso_type || ''}`.toLowerCase().includes(q);
+    });
+
+    const exportarHistorial = async () => {
+        setExportando(true);
+        try {
+            const params = { formato: exportFormato };
+            if (filterTipo) params.tipo = filterTipo;
+            if (filterDesde) params.desde = filterDesde;
+            if (filterHasta) params.hasta = filterHasta;
+            await descargarArchivo('/api/my-ingresos/export', params, nombreExportado('mi_historial', exportFormato));
+            setExportAbierto(false);
+            showAlert('Exportación generada');
+        } catch (_) {
+            showAlert('No se pudo generar la exportación. Intenta de nuevo.', 'error');
+        } finally {
+            setExportando(false);
+        }
+    };
+
+    const exportarEquipos = async () => {
+        setExportEquiposExportando(true);
+        try {
+            await descargarArchivo(
+                '/api/my-equipment/export',
+                { formato: exportEquiposFormato },
+                nombreExportado('mis_equipos', exportEquiposFormato)
+            );
+            setExportEquiposAbierto(false);
+            showAlert('Exportación generada');
+        } catch (_) {
+            showAlert('No se pudo generar la exportación. Intenta de nuevo.', 'error');
+        } finally {
+            setExportEquiposExportando(false);
+        }
+    };
 
     const renderView = () => {
         if (editingProfile) {
             return (
-                <div className="fade-in-up">
-                    <div className="glass-box p-4 mb-5 mx-auto fade-in-up" style={{ maxWidth: '600px' }}>
-                        <div className="section-header">
-                            <h3 className="mb-0">Editar Mi Perfil</h3>
-                        </div>
-                        <div className="admin-scrollable-container" style={{ maxHeight: '55vh' }}>
-                            <form onSubmit={handleUpdateProfile}>
-                                <div className="text-center mb-3">
-                                    <div className="rounded-circle bg-success mx-auto d-flex align-items-center justify-content-center mb-2 shadow overflow-hidden" style={{ width: '100px', height: '100px', fontSize: '2rem', fontWeight: 'bold', color: '#000' }}>
-                                        {fotoPreview ? (
-                                            <img src={fotoPreview} alt="Nueva foto" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                        ) : formData.profile_photo_path ? (
-                                            <img src={formData.profile_photo_path} alt="Foto actual" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                        ) : (
-                                            <>{formData.user_name?.[0]}{formData.user_lastname?.[0]}</>
-                                        )}
-                                    </div>
-                                    <label className="btn btn-outline-success btn-sm">
-                                        <span className="material-symbols-outlined small me-1">photo_camera</span> Cambiar foto
-                                        <input type="file" accept="image/*" hidden onChange={(e) => {
-                                            if (e.target.files?.[0]) setArchivoRecorte(e.target.files[0]);
-                                            e.target.value = '';
-                                        }} />
-                                    </label>
-                                    {profileFieldError('image')}
-                                </div>
-                                {archivoRecorte && (
-                                    <RecorteFoto
-                                        archivo={archivoRecorte}
-                                        alCancelar={() => setArchivoRecorte(null)}
-                                        alConfirmar={(blob) => {
-                                            setFotoBlob(blob);
-                                            setFotoPreview(URL.createObjectURL(blob));
-                                            setArchivoRecorte(null);
-                                        }}
-                                    />
-                                )}
-                                <div className="row">
-                                    <div className="col-12 mb-3">
-                                        <label className="form-label opacity-75 small">N° Documento</label>
-                                        <input type="text" name="user_identification" className={`form-control ${profileErrors.user_identification ? 'is-invalid' : ''}`} value={formData.user_identification} onChange={handleChange} required />
-                                        {profileFieldError('user_identification')}
-                                    </div>
-                                    <div className="col-12 mb-3">
-                                        <label className="form-label opacity-75 small">Nombre</label>
-                                        <input type="text" name="user_name" className={`form-control ${profileErrors.user_name ? 'is-invalid' : ''}`} value={formData.user_name} onChange={handleChange} required />
-                                        {profileFieldError('user_name')}
-                                    </div>
-                                    <div className="col-12 mb-3">
-                                        <label className="form-label opacity-75 small">Apellido</label>
-                                        <input type="text" name="user_lastname" className={`form-control ${profileErrors.user_lastname ? 'is-invalid' : ''}`} value={formData.user_lastname} onChange={handleChange} required />
-                                        {profileFieldError('user_lastname')}
-                                    </div>
-                                    <div className="col-12 mb-3">
-                                        <label className="form-label opacity-75 small">Email Institucional</label>
-                                        <input type="email" name="user_email" className={`form-control ${profileErrors.user_email ? 'is-invalid' : ''}`} value={formData.user_email} onChange={handleChange} required />
-                                        {profileFieldError('user_email')}
-                                    </div>
-                                    <div className="col-12 mb-3">
-                                        <label className="form-label opacity-75 small">Nueva Contraseña (Opcional)</label>
-                                        <input type="password" name="user_password" placeholder="Mínimo 6 caracteres..." className={`form-control ${profileErrors.user_password ? 'is-invalid' : ''}`} value={formData.user_password} onChange={handleChange} />
-                                        {profileFieldError('user_password')}
-                                        <small className="opacity-50">Si tienes verificación en dos pasos activa, al guardar se enviará un código de 6 dígitos a tu correo.</small>
-                                    </div>
-                                    {codigoSolicitado && (
-                                        <div className="col-12 mb-3">
-                                            <label className="form-label opacity-75 small">Código de 6 dígitos (enviado a tu correo)</label>
-                                            <input type="text" inputMode="numeric" maxLength="6" placeholder="123456" className={`form-control ${profileErrors.two_factor_code ? 'is-invalid' : ''}`} value={codigo2fa} onChange={(e) => setCodigo2fa(e.target.value.replace(/\D/g, '').slice(0, 6))} />
-                                            {profileFieldError('two_factor_code')}
-                                        </div>
-                                    )}
-                                    <div className="col-12 mb-3">
-                                        <label className="form-label opacity-75 small">Ficha</label>
-                                        <input type="number" name="user_coursenumber" className={`form-control ${profileErrors.user_coursenumber ? 'is-invalid' : ''}`} value={formData.user_coursenumber} onChange={handleChange} required />
-                                        {profileFieldError('user_coursenumber')}
-                                    </div>
-                                    <div className="col-12 mb-3">
-                                        <label className="form-label opacity-75 small">Programa</label>
-                                        <input type="text" name="user_program" className={`form-control ${profileErrors.user_program ? 'is-invalid' : ''}`} value={formData.user_program} onChange={handleChange} required />
-                                        {profileFieldError('user_program')}
-                                    </div>
-                                </div>
-                                <div className="d-flex gap-2 mt-4">
-                                    <button type="submit" className="btn btn-success action-btn flex-grow-1 py-2">
-                                        <span className="material-symbols-outlined">save</span> Guardar Cambios
-                                    </button>
-                                    <button type="button" className="btn btn-outline-secondary action-btn px-4" onClick={cancelarEdicionPerfil}>
-                                        Cancelar
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
+                <EditarMiPerfil
+                    usuario={currentUser}
+                    mostrarFichaPrograma={true}
+                    onCancelar={cancelarEdicionPerfil}
+                    onGuardado={(usuario) => {
+                        setCurrentUser(usuario);
+                        setEditingProfile(false);
+                    }}
+                />
             );
         }
 
@@ -309,13 +197,24 @@ const Aprendiz = () => {
                 return <StatsDashboard currentUser={currentUser} />;
             case 'comprobantes':
                 return (
-                    <div className="fade-in-up">
-                        <div className="glass-box p-4 mb-5 mx-auto" style={{ maxWidth: '1200px' }}>
-                            <div className="section-header">
-                                <h3 className="mb-0">Mis Comprobantes de Equipo</h3>
-                                <p className="opacity-50 small">Registros de tus dispositivos ingresados al centro</p>
+                    <div className="fade-in-up mx-auto" style={{ maxWidth: '1200px' }}>
+                        <div className="page-cabecera">
+                            <div>
+                                <h3 className="page-titulo mb-1">Mis equipos</h3>
+                                <p className="page-subtitulo mb-0">{equipmentList.length} equipo{equipmentList.length === 1 ? '' : 's'} registrado{equipmentList.length === 1 ? '' : 's'}</p>
                             </div>
-                            <div className="table-responsive admin-scrollable-container" style={{ maxHeight: '50vh' }}>
+                            <div className="page-acciones">
+                                <button
+                                    type="button"
+                                    className="btn btn-outline-success action-btn"
+                                    onClick={() => { setExportEquiposFormato('pdf'); setExportEquiposAbierto(true); }}
+                                >
+                                    <span className="material-symbols-outlined">download</span> Exportar
+                                </button>
+                            </div>
+                        </div>
+                        <div className="glass-box p-0" style={{ maxWidth: 'none' }}>
+                            <div className="table-responsive admin-scrollable-container" style={{ maxHeight: '60vh' }}>
                                 <table className="table admin-table table-cards mb-0">
                                     <thead>
                                         <tr>
@@ -375,23 +274,76 @@ const Aprendiz = () => {
                 );
             case 'historial':
                 return (
-                    <div className="fade-in-up">
-                        <div className="glass-box p-4 mb-5 mx-auto" style={{ maxWidth: '1000px' }}>
-                            <div className="section-header">
-                                <h3 className="mb-0">Mi Historial de Accesos</h3>
-                                <p className="opacity-50 small">Registros de tus ingresos al centro de formación</p>
+                    <div className="fade-in-up mx-auto" style={{ maxWidth: '1100px' }}>
+                        <div className="page-cabecera">
+                            <div>
+                                <h3 className="page-titulo mb-1">Mi historial</h3>
+                                <p className="page-subtitulo mb-0">{filteredIngresos.length} registro{filteredIngresos.length === 1 ? '' : 's'}</p>
                             </div>
-                            <div className="table-responsive admin-scrollable-container" style={{ maxHeight: '50vh' }}>
+                            <div className="page-acciones">
+                                <button type="button" className="btn btn-outline-success action-btn" onClick={() => { setExportFormato('pdf'); setExportAbierto(true); }}>
+                                    <span className="material-symbols-outlined">download</span> Exportar
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="filtros-barra">
+                            <div className="buscador-sena">
+                                <span className="material-symbols-outlined">search</span>
+                                <input
+                                    type="text"
+                                    placeholder="Buscar por lugar…"
+                                    value={searchTermIngresos}
+                                    onChange={(e) => setSearchTermIngresos(e.target.value)}
+                                    aria-label="Buscar en mi historial"
+                                />
+                                {searchTermIngresos && (
+                                    <button type="button" className="buscador-limpiar" onClick={() => setSearchTermIngresos('')} aria-label="Limpiar búsqueda">
+                                        <span className="material-symbols-outlined">close</span>
+                                    </button>
+                                )}
+                            </div>
+                            <div className="filtros-chips">
+                                {[
+                                    { key: '', label: 'Todos' },
+                                    { key: 'Entrada', label: 'Entradas' },
+                                    { key: 'Salida', label: 'Salidas' }
+                                ].map((f) => (
+                                    <button
+                                        key={f.key || 'todos'}
+                                        type="button"
+                                        className={`chip-sena ${filterTipo === f.key ? 'activo' : ''}`}
+                                        onClick={() => setFilterTipo(f.key)}
+                                    >
+                                        {f.label}
+                                    </button>
+                                ))}
+                                <button
+                                    type="button"
+                                    className="chip-sena"
+                                    onClick={() => { setFilterTipo(''); setFilterDesde(''); setFilterHasta(''); setSearchTermIngresos(''); }}
+                                >
+                                    Limpiar
+                                </button>
+                            </div>
+                            <div className="filtros-fechas">
+                                <label>Desde <input type="date" className="form-control" value={filterDesde} onChange={(e) => setFilterDesde(e.target.value)} /></label>
+                                <label>Hasta <input type="date" className="form-control" value={filterHasta} onChange={(e) => setFilterHasta(e.target.value)} /></label>
+                            </div>
+                        </div>
+
+                        <div className="glass-box p-0" style={{ maxWidth: 'none' }}>
+                            <div className="table-responsive admin-scrollable-container" style={{ maxHeight: '60vh' }}>
                                 <table className="table admin-table table-cards mb-0">
                                     <thead>
                                         <tr>
-                                            <th>Fecha y Hora</th>
-                                            <th>Ubicación / Punto</th>
+                                            <th>Fecha y hora</th>
+                                            <th>Ubicación / punto</th>
                                             <th>Tipo</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {ingresos.length > 0 ? ingresos.map(ingreso => (
+                                        {filteredIngresos.length > 0 ? filteredIngresos.map(ingreso => (
                                             <tr key={ingreso.id_ingreso}>
                                                 <td data-label="Fecha y Hora">
                                                     <div className="d-flex align-items-center gap-2">
@@ -412,7 +364,7 @@ const Aprendiz = () => {
                                             </tr>
                                         )) : (
                                             <tr>
-                                                <td colSpan="3" className="text-center py-4 opacity-50">No se encontraron registros de ingreso.</td>
+                                                <td colSpan="3" className="text-center py-4 opacity-50">No hay registros con esos filtros.</td>
                                             </tr>
                                         )}
                                     </tbody>
@@ -429,57 +381,12 @@ const Aprendiz = () => {
                 return <EscanearAcceso />;
             case 'profile':
                 return (
-                    <div className="fade-in-up glass-box p-5 mx-auto" style={{ maxWidth: '600px' }}>
-                        <div className="text-center mb-4">
-                            <div className="rounded-circle bg-success mx-auto d-flex align-items-center justify-content-center mb-3 shadow overflow-hidden" style={{ width: '100px', height: '100px', fontSize: '2.5rem', fontWeight: 'bold', color: '#000' }}>
-                                {currentUser?.profile_photo_path ? (
-                                    <img src={currentUser.profile_photo_path} alt="Profile" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                ) : (
-                                    <>{currentUser?.user_name?.[0]}{currentUser?.user_lastname?.[0]}</>
-                                )}
-                            </div>
-                            <h3 className="mb-1">{currentUser?.user_name} {currentUser?.user_lastname}</h3>
-                            <span className="badge bg-success bg-opacity-25 text-success border border-success border-opacity-50 px-3 py-1">
-                                {currentUser?.role?.rol_name || 'Aprendiz'}
-                            </span>
-                        </div>
-
-                        <div className="row text-start mt-4 g-4">
-                            <div className="col-12">
-                                <label className="form-label opacity-50 small mb-1">Identificación</label>
-                                <div className="p-3 bg-dark bg-opacity-25 rounded border border-success border-opacity-10">
-                                    {currentUser?.user_identification || 'No registrada'}
-                                </div>
-                            </div>
-                            <div className="col-12">
-                                <label className="form-label opacity-50 small mb-1">Correo Institucional</label>
-                                <div className="p-3 bg-dark bg-opacity-25 rounded border border-success border-opacity-10">
-                                    {currentUser?.user_email}
-                                </div>
-                            </div>
-                            <div className="col-md-6">
-                                <label className="form-label opacity-50 small mb-1">Ficha</label>
-                                <div className="p-3 bg-dark bg-opacity-25 rounded border border-success border-opacity-10">
-                                    {currentUser?.user_coursenumber}
-                                </div>
-                            </div>
-                            <div className="col-md-6">
-                                <label className="form-label opacity-50 small mb-1">Programa</label>
-                                <div className="p-3 bg-dark bg-opacity-25 rounded border border-success border-opacity-10">
-                                    {currentUser?.user_program}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="mt-5 pt-3 border-top border-success border-opacity-10">
-                            <button className="btn btn-outline-success w-100 py-3 d-flex align-items-center justify-content-center gap-2" onClick={() => setEditingProfile(true)}>
-                                <span className="material-symbols-outlined">edit</span>
-                                Editar Información de Mi Perfil
-                            </button>
-                        </div>
-                        <DosPasos />
-                        <MiHuella />
-                    </div>
+                    <PerfilSena
+                        usuario={currentUser}
+                        rol={currentUser?.role?.rol_name || 'Aprendiz'}
+                        onEditar={() => setEditingProfile(true)}
+                        seguridad={<><DosPasos /><MiHuella /><SimulacionHuella /></>}
+                    />
                 );
             default:
                 return null;
@@ -487,12 +394,12 @@ const Aprendiz = () => {
     };
 
     const aprendizLinks = [ // Definicion de enlaces para el navbar (espejo del dock móvil: Inicio·Excusas·Historial·Equipos)
-        { label: 'DASHBOARD', icon: 'dashboard', view: 'dashboard' },
-        { label: 'MIS PERMISOS', icon: 'key', view: 'permisos' },
-        { label: 'HISTORIAL DE ACCESOS', icon: 'history', view: 'historial' },
-        { label: 'MIS EQUIPOS', icon: 'inventory_2', view: 'comprobantes' },
-        { label: 'MI CARNET', icon: 'id_card', view: 'qr_carnet' },
-        { label: 'MARCAR ACCESO', icon: 'qr_code_scanner', view: 'escanear_acceso' }
+        { label: 'Inicio', icon: 'dashboard', view: 'dashboard' },
+        { label: 'Mis permisos', icon: 'key', view: 'permisos' },
+        { label: 'Historial', icon: 'history', view: 'historial' },
+        { label: 'Mis equipos', icon: 'inventory_2', view: 'comprobantes' },
+        { label: 'Mi carnet', icon: 'id_card', view: 'qr_carnet' },
+        { label: 'Salida QR', icon: 'qr_code_scanner', view: 'escanear_acceso' }
     ];
 
     return ( // Estructura principal
@@ -512,6 +419,28 @@ const Aprendiz = () => {
             </main>
 
             <Footer />
+            <ModalExportar
+                abierto={exportAbierto}
+                titulo="Exportar mi historial"
+                detalle="Se aplican los filtros activos. Elige PDF o Excel."
+                formatos={['pdf', 'xlsx']}
+                formato={exportFormato}
+                onFormato={setExportFormato}
+                onCerrar={() => setExportAbierto(false)}
+                onExportar={exportarHistorial}
+                exportando={exportando}
+            />
+            <ModalExportar
+                abierto={exportEquiposAbierto}
+                titulo="Exportar mis equipos"
+                detalle="Elige PDF o Word."
+                formatos={['pdf', 'docx']}
+                formato={exportEquiposFormato}
+                onFormato={setExportEquiposFormato}
+                onCerrar={() => setExportEquiposAbierto(false)}
+                onExportar={exportarEquipos}
+                exportando={exportEquiposExportando}
+            />
         </div>
     );
 };

@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import QRCode from 'qrcode';
 
-// QR rotativo de portería (superadmin/admin): un apartado ENTRADA y otro
-// SALIDA. El QR rota cada 30 s; el aprendiz/instructor lo escanea y queda
-// registrado en el historial. La Salida SOLO se marca por este QR o PIN.
+// (Tema clásico) QR rotativo de portería (superadmin/admin): un apartado ENTRADA
+// y otro SALIDA. El QR rota cada 30 s; el aprendiz/instructor lo escanea y queda
+// registrado en el historial. Se conserva para el tema viejo.
 const AccesoQr = () => {
     const [tipo, setTipo] = useState('entrada');
     const [qrUrl, setQrUrl] = useState('');
@@ -77,7 +77,7 @@ const AccesoQr = () => {
                         </div>
                         <p className="mt-3 mb-0">
                             <span className={`badge px-3 py-2 ${tipo === 'entrada' ? 'bg-success' : 'bg-warning'} bg-opacity-10 border border-opacity-25 ${tipo === 'entrada' ? 'text-success border-success' : 'text-warning border-warning'}`}>
-                                {tipo === 'entrada' ? 'ENTRADA' : 'SALIDA'} • se renueva en {segundos}s
+                                {tipo === 'entrada' ? 'ENTRADA' : 'SALIDA'} ⬢ se renueva en {segundos}s
                             </span>
                         </p>
                         <p className="opacity-50 small mt-2">El aprendiz o instructor lo escanea desde su app y queda en el historial.</p>

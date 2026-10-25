@@ -1,0 +1,205 @@
+@charset "UTF-8";
+
+/* ==========================================================================
+   ACCESOS · piezas compartidas
+   --------------------------------------------------------------------------
+   Solo lo que Bootstrap no trae: el visor de cámara, la franja de estado del
+   día y las filas de movimientos. Todo lo demás usa las clases de siempre
+   (`glass-box`, `section-header`, `badge`, `btn`, `progress`) para que estas
+   pantallas se vean igual que el resto de la app.
+   ========================================================================== */
+
+.acc-view {
+    width: 100%;
+    max-width: 1180px;
+    margin: 0 auto;
+}
+
+.acc-view .section-header p { margin-top: 4px; }
+
+/* Visor de cámara: mismo marco oscuro y borde verde que el resto de tarjetas */
+.acc-stage {
+    position: relative;
+    border-radius: 18px;
+    overflow: hidden;
+    background: #000000;
+    border: 1px solid rgba(2, 217, 20, 0.25);
+    height: 280px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.acc-stage video {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover;
+    border-radius: 18px !important;
+}
+
+.acc-stage-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 20px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.acc-stage-empty .material-symbols-outlined {
+    font-size: 42px;
+    color: var(--primary-color);
+}
+
+.acc-stage-empty p { margin: 0; font-size: 0.82rem; max-width: 34ch; }
+
+/* Franja del estado del día (entrada registrada / sin entrada) */
+.acc-dia {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: rgba(2, 217, 20, 0.07);
+    border: 1px solid rgba(2, 217, 20, 0.25);
+}
+
+.acc-dia .material-symbols-outlined { font-size: 24px; flex: 0 0 auto; color: var(--primary-color); }
+.acc-dia--fuera .material-symbols-outlined { color: #ffc107; }
+.acc-dia strong { display: block; font-size: 0.92rem; color: var(--text-color); }
+.acc-dia span { display: block; font-size: 0.78rem; opacity: 0.7; }
+
+/* Filas de movimientos (mismo aire que las tablas del panel) */
+.acc-fila {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(2, 217, 20, 0.12);
+}
+
+.acc-fila:last-child { border-bottom: 0; padding-bottom: 0; }
+.acc-fila strong { font-size: 0.86rem; }
+.acc-fila small { opacity: 0.65; }
+.acc-fila .acc-fila-hora { margin-left: auto; font-size: 0.82rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* QR del código propio: reutiliza el marco blanco del carnet */
+.acc-qr-box {
+    width: 190px;
+    height: 190px;
+    background: #ffffff;
+    border: 3px solid var(--primary-color);
+    border-radius: 16px;
+    padding: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
+}
+
+.acc-qr-box img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+.acc-qr-box--vacio {
+    background: rgba(255, 255, 255, 0.04);
+    border: 2px dashed rgba(2, 217, 20, 0.35);
+    color: var(--text-color);
+    opacity: 0.85;
+}
+
+/* Persona validada en portería */
+.acc-persona {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 14px;
+    background: rgba(2, 217, 20, 0.07);
+    border: 1px solid rgba(2, 217, 20, 0.25);
+}
+
+.acc-avatar {
+    width: 40px;
+    height: 40px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(2, 217, 20, 0.16);
+    border: 1px solid rgba(2, 217, 20, 0.4);
+    color: var(--primary-color);
+    font-weight: 700;
+    font-size: 0.8rem;
+}
+
+.acc-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+@media (max-width: 991.98px) {
+    .acc-stage { height: auto; aspect-ratio: 4 / 3; }
+    .acc-qr-box { width: 168px; height: 168px; }
+}
+
+/* Puerta de entrada (pantalla pública) */
+.puerta-shell {
+    position: relative;
+    width: 100%;
+    max-width: 1040px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.puerta-shell .puerta-head { max-width: 640px; margin: 0 auto; }
+
+/* Botón de tema dentro de la cabecera de la tarjeta */
+.acc-head-accion .auth-theme-btn {
+    position: static;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 auto;
+}
+
+/* Punto que late mientras la puerta espera la entrada */
+.acc-pulse {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 8px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    vertical-align: middle;
+    animation: accPulse 1.6s cubic-bezier(0.77, 0, 0.175, 1) infinite;
+}
+
+@keyframes accPulse {
+    0%, 100% { opacity: 0.35; transform: scale(0.85); }
+    50% { opacity: 1; transform: scale(1); }
+}
+
+@media (max-width: 991.98px) {
+    .puerta-shell { padding: 0 4px; }
+    .puerta-shell .puerta-head h1 { font-size: 1.35rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .acc-pulse { animation: none; }
+}
+
+/* En el panel el visor ocupa el alto que sobre de la tarjeta */
+.acc-view .acc-stage {
+    flex: 1 1 auto;
+    min-height: 280px;
+}
+
+/* Las tarjetas de acceso usan todo el ancho de su columna (glass-box topa en 450) */
+.acc-view .glass-box,
+.puerta-shell .row .glass-box {
+    max-width: none;
+    margin: 0;
+}

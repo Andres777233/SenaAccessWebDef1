@@ -4,6 +4,7 @@ import axios from 'axios';
 import Footer from './Footer';
 import BotonTema from './BotonTema';
 import { showAlert } from './CustomAlert';
+import { decidirRutaPorRol } from '../utils/sesion';
 
 // Guarda la sesión entregada por validar-codigo o por el polling de estado.
 const guardarSesion2Fa = (data) => {
@@ -12,20 +13,11 @@ const guardarSesion2Fa = (data) => {
     localStorage.removeItem('2fa_challenge_id');
 };
 
-// Redirige al panel según rol (mismo mapa que Login.jsx).
-const redirigirPorRol = (navigate, role) => {
-    const userRole = (role || '').toLowerCase();
-    if (userRole === 'superadmin') {
-        navigate('/admin');
-    } else if (userRole === 'instructor') {
-        navigate('/puerta-acceso');
-    } else if (userRole === 'aprendiz') {
-        navigate('/puerta-acceso');
-    } else if (userRole === 'admin' || userRole === 'portero') {
-        navigate('/portero');
-    } else {
-        navigate('/loading');
-    }
+// Redirige al panel según rol y a la puerta solo si aún no marcó la Entrada
+// de hoy (misma regla que el login normal, en utils/sesion.js).
+const redirigirPorRol = async (role, token, navigate) => {
+    const ruta = await decidirRutaPorRol(role, token);
+    navigate(ruta, { replace: true });
 };
 
 const Verificacion2Fa = () => {
@@ -59,8 +51,7 @@ const Verificacion2Fa = () => {
                 if (estado === 'aprobado') {
                     marcarResuelto();
                     guardarSesion2Fa(response.data);
-                    showAlert(response.data.message || 'Login exitoso');
-                    redirigirPorRol(navigate, response.data.role);
+                    await redirigirPorRol(response.data.role, response.data.access_token, navigate);
                 } else if (estado === 'rechazado' || estado === 'denegado') {
                     marcarResuelto();
                     setGeneralError('El intento fue rechazado. Vuelve a iniciar sesión.');
@@ -114,8 +105,7 @@ const Verificacion2Fa = () => {
             });
             marcarResuelto();
             guardarSesion2Fa(response.data);
-            showAlert(response.data.message || 'Login exitoso');
-            redirigirPorRol(navigate, response.data.role);
+            await redirigirPorRol(response.data.role, response.data.access_token, navigate);
         } catch (error) {
             if (error.response) {
                 const mensaje = error.response.data.message || 'Código inválido';

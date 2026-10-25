@@ -1,6 +1,3 @@
-import './bootstrap';
-
-
 /**
  * We'll load the axios HTTP library which allows us to easily issue requests
  * to our Laravel back-end. This library automatically handles sending the
@@ -32,6 +29,7 @@ window.axios.interceptors.response.use((response) => {
     if (error && error.response && error.response.status === 401) {
         localStorage.removeItem('access_token');
         localStorage.removeItem('user_role');
+        localStorage.removeItem('sena_usuario');
         if (!window.location.pathname.startsWith('/login')) {
             window.location.href = '/login';
         }

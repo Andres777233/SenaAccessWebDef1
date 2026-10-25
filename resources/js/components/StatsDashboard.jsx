@@ -1,6 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
+// (Tema clásico) Dashboard de solo KPIs. Se conserva tal cual para el tema
+// viejo; el arreglo es que el refresco al volver a la pestaña ahora sí llama a
+// fetchStats (antes quedaba fuera de su alcance y fallaba en silencio).
 const StatsDashboard = ({ currentUser = null }) => {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -9,39 +12,37 @@ const StatsDashboard = ({ currentUser = null }) => {
     // Portería ve estadísticas del centro (mismo alcance operativo que admin).
     const isAdmin = ['superadmin', 'admin'].includes(currentUser?.role?.rol_name?.toLowerCase());
 
-    useEffect(() => {
-        const fetchStats = async () => {
-            try {
-                setLoading(true);
-                const url = isAdmin ? '/api/admin/stats' : '/api/my-stats';
-                const response = await axios.get(url);
-                setStats(response.data);
-                setError('');
-            } catch (err) {
-                setError('No se pudieron cargar los datos del dashboard.');
-            } finally {
-                setLoading(false);
-            }
-        };
-        if (currentUser) fetchStats();
+    const fetchStats = useCallback(async () => {
+        if (!currentUser) return;
+        try {
+            setLoading(true);
+            const url = isAdmin ? '/api/admin/stats' : '/api/my-stats';
+            const response = await axios.get(url);
+            setStats(response.data);
+            setError('');
+        } catch (err) {
+            setError('No se pudieron cargar los datos del dashboard.');
+        } finally {
+            setLoading(false);
+        }
     }, [isAdmin, currentUser]);
 
     useEffect(() => {
-        const handleFocus = () => {
-            fetchStats();
-        };
+        fetchStats();
+    }, [fetchStats]);
+
+    useEffect(() => {
+        const handleFocus = () => fetchStats();
         const handleVisibility = () => {
-            if (document.visibilityState === "visible") {
-                fetchStats();
-            }
+            if (document.visibilityState === 'visible') fetchStats();
         };
-        window.addEventListener("focus", handleFocus);
-        document.addEventListener("visibilitychange", handleVisibility);
+        window.addEventListener('focus', handleFocus);
+        document.addEventListener('visibilitychange', handleVisibility);
         return () => {
-            window.removeEventListener("focus", handleFocus);
-            document.removeEventListener("visibilitychange", handleVisibility);
+            window.removeEventListener('focus', handleFocus);
+            document.removeEventListener('visibilitychange', handleVisibility);
         };
-    }, [currentUser]);
+    }, [fetchStats]);
 
     const firstName = currentUser?.user_name || 'Usuario';
 
@@ -57,8 +58,6 @@ const StatsDashboard = ({ currentUser = null }) => {
         { label: 'Mis Novedades', value: stats?.novedades_totales ?? 0, icon: 'report_problem' },
     ];
 
-    // El dashboard muestra solo las tarjetas KPI. El historial completo vive
-    // en la vista HISTORIAL de cada panel (no se duplica aquí).
     return (
         <div className="fade-in-up mx-auto" style={{ maxWidth: isAdmin ? '1400px' : '1200px' }}>
             <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-4">

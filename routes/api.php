@@ -13,6 +13,7 @@ use App\Http\Controllers\NotificacionController;
 use App\Http\Controllers\TwoFactorController;
 use App\Http\Controllers\ChatbotController;
 use App\Http\Controllers\AccesoQrController;
+use App\Http\Controllers\AccesoCodigoController;
 use App\Http\Controllers\PrediccionController;
 
 /*
@@ -32,7 +33,7 @@ Route::get('/health', function () {
 });
 
 // Rutas de autenticación con Sanctum
-Route::post('/register', [AuthController::class, 'register']);
+Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:register');
 // Throttle anclado al correo (ver AppServiceProvider): máx 5 fallos/min por cuenta.
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
 // Throttle por correo: máx 3 solicitudes/min, evita spam de correos.
@@ -86,8 +87,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Rutas de usuario general (Aprendiz)
     Route::get('/my-ingresos', [AdminController::class, 'getMyIngresos']);
+    Route::get('/my-ingresos/export', [AdminController::class, 'exportMyIngresos']);
     Route::get('/my-stats', [AdminController::class, 'myStats']);
     Route::get('/my-equipment', [EquipmentController::class, 'getMyEquipment']);
+    Route::get('/my-equipment/export', [EquipmentController::class, 'exportMyEquipment']);
     Route::get('/my-equipment/{id}/comprobante', [EquipmentController::class, 'comprobante']);
     Route::post('/my-equipment', [EquipmentController::class, 'store']);
     Route::put('/my-profile', [AdminController::class, 'updateMyProfile']);
@@ -126,6 +129,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/equipment/{id}/return', [EquipmentController::class, 'markReturn'])->middleware('admin_or_portero');
         Route::middleware('admin_or_portero')->group(function () {
             Route::get('/equipment', [EquipmentController::class, 'index']);
+            Route::get('/equipment/export', [EquipmentController::class, 'exportIndex']);
             Route::delete('/equipment/{id}', [EquipmentController::class, 'deleteEquipment']);
         });
     });
@@ -149,14 +153,27 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/2fa/aprobar', [TwoFactorController::class, 'aprobar']);
 
     // Chatbot flotante (Gemini): responde 503 honesto sin GEMINI_API_KEY.
-    Route::post('/chatbot', [ChatbotController::class, 'chat']);
+    // Limite por usuario: cada mensaje cuesta una llamada al modelo.
+    Route::post('/chatbot', [ChatbotController::class, 'chat'])->middleware('throttle:chatbot');
 
     // QR rotativo de portería: mostrar (admin/superadmin) y validar (cualquiera).
     Route::get('/acceso/qr/{tipo}', [AccesoQrController::class, 'mostrar'])->middleware('admin_or_portero');
     Route::post('/acceso/validar', [AccesoQrController::class, 'validar']);
+    // La puerta web lo consulta cada pocos segundos para entrar sola cuando
+    // portería registra la Entrada (antes había que pulsar "ya marqué").
+    Route::get('/acceso/estado', [AccesoQrController::class, 'estado'])->middleware('throttle:60,1');
+    // Portería escanea el carnet digital (web o móvil) y registra la Entrada.
+    Route::post('/acceso/carnet', [AccesoQrController::class, 'carnet'])
+        ->middleware(['admin_or_portero', 'throttle:120,1']);
     // PIN corto de acceso: portería lo genera y el aprendiz lo digita sin cámara.
     Route::post('/admin/pines-acceso', [AccesoQrController::class, 'generarPin'])->middleware('admin_or_portero');
     Route::post('/acceso/validar-pin', [AccesoQrController::class, 'validarPin']);
+
+    // Entrada asistida: el usuario genera un QR/PIN en la web y portería lo
+    // escanea o digita desde el móvil para registrar su Entrada.
+    Route::post('/acceso/generar', [AccesoCodigoController::class, 'generar'])->middleware('throttle:acceso-generar');
+    Route::post('/acceso/validar-codigo', [AccesoCodigoController::class, 'validarCodigo'])
+        ->middleware(['admin_or_portero', 'throttle:acceso-validar']);
 
     // Ambientes (admin crea, instructor gestiona sus ambientes/aprendices).
     Route::get('/ambientes', [AmbienteController::class, 'index']);
