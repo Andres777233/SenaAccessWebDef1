@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { cerrarSesion } from './auth';
 
 // Ruta posterior al login segun el rol. Aprendiz e instructor solo entran
 // directo a su panel si ya marcaron la Entrada de hoy; si no, pasan por la
@@ -25,13 +26,20 @@ const fechaBogota = (valor) => {
     }
 };
 
+// Limpia la sesion de ESTA pestaña (utils/auth.js) y el cache del panel.
+export const limpiarSesionLocal = () => {
+    cerrarSesion();
+    sessionStorage.removeItem('sena_usuario');
+    localStorage.removeItem('sena_usuario');
+};
+
 export const decidirRutaPorRol = async (role, token) => {
     const r = (role || '').toLowerCase();
 
     if (r === 'superadmin') return '/admin';
     if (r === 'admin' || r === 'portero') return '/portero';
 
-    if (r === 'aprendiz' || r === 'instructor') {
+    if (r === 'aprendiz' || r === 'instructor' || r === 'funcionario') {
         try {
             const { data } = await axios.get('/api/my-ingresos', {
                 headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -46,7 +54,9 @@ export const decidirRutaPorRol = async (role, token) => {
             // Si la verificacion falla, no se bloquea el acceso al panel.
         }
 
-        return r === 'instructor' ? '/instructor' : '/aprendiz';
+        if (r === 'instructor') return '/instructor';
+        if (r === 'funcionario') return '/funcionario';
+        return '/aprendiz';
     }
 
     return '/loading';

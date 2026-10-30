@@ -5,6 +5,7 @@ import BotonTema from './BotonTema';
 import EscanearAcceso from './EscanearAcceso';
 import CodigoAcceso from './CodigoAcceso';
 import { useEsperarEntrada } from '../utils/useEsperarEntrada';
+import { getRol } from '../utils/auth';
 
 // Puerta de entrada: tras el login, quien no tenga Entrada de hoy debe
 // registrarla antes de entrar a su panel. No hay botón de "ya marqué":
@@ -21,13 +22,14 @@ const PuertaAcceso = () => {
         if (yaNavego.current) return;
         yaNavego.current = true;
         setEntrando(true);
-        const role = (localStorage.getItem('user_role') || '').toLowerCase();
+        const role = getRol();
         const destino = (
             role === 'superadmin' ? '/admin'
                 : role === 'instructor' ? '/instructor'
                     : role === 'aprendiz' ? '/aprendiz'
-                        : (role === 'admin' || role === 'portero') ? '/portero'
-                            : '/loading'
+                        : role === 'funcionario' ? '/funcionario'
+                            : (role === 'admin' || role === 'portero') ? '/portero'
+                                : '/loading'
         );
         window.setTimeout(() => navigate(destino), 900);
     }, [navigate]);
@@ -49,7 +51,7 @@ const PuertaAcceso = () => {
         revisar();
     };
 
-    const role = (localStorage.getItem('user_role') || '').toLowerCase();
+    const role = getRol();
     const esRolOperativo = role === 'superadmin' || role === 'admin' || role === 'portero';
 
     return (

@@ -18,6 +18,7 @@ import ChatbotWidget from './components/ChatbotWidget';
 import PuertaAcceso from './components/PuertaAcceso';
 import HuellaSimulacion from './components/HuellaSimulacion';
 import NotFound from './components/NotFound';
+import { getToken, getRol, cerrarSesion } from './utils/auth';
 // Paneles pesados por rol: lazy para que la primera carga solo baje el chunk
 // de la ruta visitada (antes las 12 rutas viajaban en un solo app-*.js).
 const Admin = lazy(() => import('./components/Admin'));
@@ -27,12 +28,14 @@ const Portero = lazy(() => import('./components/Portero'));
 
 // Guard: redirige a /login si no hay token o el rol no coincide con el esperado.
 const ProtectedRoute = ({ expectedRole, children }) => {
-    const token = localStorage.getItem('access_token');
-    const role = localStorage.getItem('user_role')?.toLowerCase();
+    const token = getToken();
+    const role = getRol();
     if (!token) {
         return <Navigate to="/login" replace />;
     }
-    if (expectedRole && role !== expectedRole) {
+    // Un rol puede tener varias grafías (portería llega como Admin o Portero).
+    const esperados = String(expectedRole || '').toLowerCase().split('|').filter(Boolean);
+    if (esperados.length && !esperados.includes(role)) {
         return <Navigate to="/" replace />;
     }
     return children;
@@ -40,8 +43,8 @@ const ProtectedRoute = ({ expectedRole, children }) => {
 
 // Ruta pública del reto 2FA: si ya hay sesión, redirige por rol como el login.
 const Verificacion2FaRoute = () => {
-    const token = localStorage.getItem('access_token');
-    const role = localStorage.getItem('user_role')?.toLowerCase();
+    const token = getToken();
+    const role = getRol();
     if (token) {
         if (role === 'superadmin') {
             return <Navigate to="/admin" replace />;
@@ -51,6 +54,9 @@ const Verificacion2FaRoute = () => {
         }
         if (role === 'aprendiz') {
             return <Navigate to="/aprendiz" replace />;
+        }
+        if (role === 'funcionario') {
+            return <Navigate to="/funcionario" replace />;
         }
         if (role === 'admin' || role === 'portero') {
             return <Navigate to="/portero" replace />;
@@ -65,8 +71,7 @@ const LogoutHandler = () => {
     const location = useLocation();
     useEffect(() => {
         if (location.search === '?logout=1') {
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('user_role');
+            cerrarSesion();
             window.history.replaceState({}, document.title, '/');
         }
     }, [location]);
@@ -77,7 +82,7 @@ const LogoutHandler = () => {
 const ChatbotGate = () => {
     const location = useLocation();
     const oculto = ['/puerta-acceso', '/huella', '/login'].includes(location.pathname);
-    return (!oculto && !!localStorage.getItem('access_token')) ? <ChatbotWidget /> : null;
+    return (!oculto && !!getToken()) ? <ChatbotWidget /> : null;
 };
 
 // Los paneles son lazy: tras un deploy el chunk viejo puede faltar y React
@@ -137,35 +142,17 @@ const App = () => {
         localStorage.setItem('theme', theme);
     }, [theme]);
 
-    // Los botones de las pantallas de acceso avisan el cambio de tema: este
-    // aviso mantiene el boton flotante sincronizado sin recargar la pagina.
+    // La navbar tambien cambia el tema: este aviso mantiene los dos botones
+    // sincronizados sin recargar la pagina.
     useEffect(() => {
         const alCambiarTema = (evento) => setTheme(evento.detail?.tema || 'dark');
         window.addEventListener('tema-cambiado', alCambiarTema);
         return () => window.removeEventListener('tema-cambiado', alCambiarTema);
     }, []);
 
-    // Funcion para alternar entre temas desde el boton flotante
-    const toggleTheme = () => {
-        setTheme(prevTheme => prevTheme === 'dark' ? 'light' : 'dark');
-    };
-
     return (
         <BrowserRouter>
             <LogoutHandler />
-            {/* Boton de modo claro/oscuro: flotante a la derecha, debajo de la
-                barra. En las pantallas de acceso lo dibuja BotonTema. */}
-            <button
-                type="button"
-                onClick={toggleTheme}
-                className="theme-toggle-btn"
-                aria-label={theme === 'dark' ? 'Activar modo claro' : 'Activar modo oscuro'}
-                title={theme === 'dark' ? 'Activar modo claro' : 'Activar modo oscuro'}
-            >
-                <span className="material-symbols-outlined">
-                    {theme === 'dark' ? 'light_mode' : 'dark_mode'}
-                </span>
-            </button>
             {/* Capas globales (alerta, chatbot, campana/tema): dentro del
                 ErrorBoundary para que un fallo aqui no desmonte la app entera
                 y deje la pantalla en blanco. */}
@@ -190,10 +177,14 @@ const App = () => {
                     <Route path="/reset-password" element={<ResetPassword />} />
                     <Route path="/loading" element={<Loading />} />
                     <Route path="/huella" element={<HuellaSimulacion />} />
-                    <Route path="/puerta-acceso" element={localStorage.getItem('access_token') ? <PuertaAcceso /> : <Navigate to="/login" replace />} />
+                    <Route path="/puerta-acceso" element={getToken() ? <PuertaAcceso /> : <Navigate to="/login" replace />} />
                     <Route path="/admin" element={<ProtectedRoute expectedRole="superadmin"><Admin /></ProtectedRoute>} />
                     <Route path="/aprendiz" element={<ProtectedRoute expectedRole="aprendiz"><Aprendiz /></ProtectedRoute>} />
                     <Route path="/instructor" element={<ProtectedRoute expectedRole="instructor"><Instructor /></ProtectedRoute>} />
+                    {/* Funcionario: personal administrativo. Usa el mismo panel del
+                        aprendiz (dashboard, carnet, historial, equipos, perfil) sin
+                        ficha de formación ni permisos/excusas. */}
+                    <Route path="/funcionario" element={<ProtectedRoute expectedRole="funcionario"><Aprendiz rol="funcionario" /></ProtectedRoute>} />
                     <Route path="/portero" element={<ProtectedRoute expectedRole="admin"><Portero /></ProtectedRoute>} />
                     <Route path="*" element={<NotFound />} />
                 </Routes>

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { limpiarSesionLocal } from '../utils/sesion';
 import NotificacionesMenu from './NotificacionesMenu';
 
 // Navbar del panel con el diseño del repositorio de referencia: una sola fila,
@@ -12,15 +13,11 @@ const Navbar = ({ currentUser, view, setView, userFilter, setUserFilter, links =
     const handleLogout = async () => {
         try {
             await axios.post('/api/logout');
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('user_role');
-            localStorage.removeItem('sena_usuario');
+            limpiarSesionLocal();
             navigate('/');
         } catch (error) {
             console.error('Error al cerrar sesión', error);
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('user_role');
-            localStorage.removeItem('sena_usuario');
+            limpiarSesionLocal();
             navigate('/');
         }
     };

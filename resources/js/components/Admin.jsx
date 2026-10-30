@@ -1,6 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { getToken, getUsuario, guardarUsuario } from '../utils/auth';
+
+// Color del badge del rol: el Funcionario usa el tono primario para
+// distinguirlo de aprendiz/instructor (verde) y de portería (rojo).
+const clasesBadgeRol = (rol) => {
+    const r = String(rol || '').toLowerCase();
+    if (r === 'admin' || r === 'portero') return 'bg-danger text-danger border-danger';
+    if (r === 'funcionario') return 'bg-primary text-primary border-primary';
+    return 'bg-success text-success border-success';
+};
+import { limpiarSesionLocal } from '../utils/sesion';
 import Footer from './Footer';
 import Navbar from './Navbar';
 import Novedades from './Novedades';
@@ -19,7 +30,7 @@ import { mensajeDeError } from '../utils/mensajes';
 // refrescarlo con /api/user en segundo plano.
 const usuarioGuardado = () => {
     try {
-        return JSON.parse(localStorage.getItem('sena_usuario') || 'null');
+        return getUsuario();
     } catch (_) {
         return null;
     }
@@ -147,7 +158,7 @@ const Admin = () => {
     // Los datos de cada vista se piden al abrirla, así la entrada es inmediata.
     useEffect(() => {
         const fetchData = async () => {
-            const token = localStorage.getItem('access_token');
+            const token = getToken();
             if (!token) {
                 navigate('/login');
                 return;
@@ -159,15 +170,13 @@ const Admin = () => {
             try {
                 const userMe = await axios.get('/api/user');
                 setCurrentUser(userMe.data);
-                localStorage.setItem('sena_usuario', JSON.stringify(userMe.data));
+                guardarUsuario(userMe.data);
                 const datosRoles = await rolesP;
                 if (datosRoles) setRoles(datosRoles);
             } catch (error) {
                 console.error('Error cargando datos: ', error);
                 if (error.response && error.response.status === 401) {
-                    localStorage.removeItem('access_token');
-                    localStorage.removeItem('user_role');
-                    localStorage.removeItem('sena_usuario');
+                    limpiarSesionLocal();
                     navigate('/login');
                 } else {
                     // La API ya explica el problema (por ejemplo, limite de
@@ -521,6 +530,7 @@ const handleCancelEdit = () => {
                                             { key: 'pendientes', label: 'Pendientes' },
                                             { key: 'Instructor', label: 'Instructores' },
                                             { key: 'Aprendiz', label: 'Aprendices' },
+                                                { key: 'Funcionario', label: 'Funcionarios' },
                                             { key: 'Admin', label: 'Admins' },
                                             { key: 'Invitado', label: 'Invitados' }
                                         ].map(f => (
@@ -552,7 +562,7 @@ const handleCancelEdit = () => {
                                                 </div>
                                                 <div className="user-card-identidad">
                                                     <h5 className="mb-1 text-truncate">{user.user_name} {user.user_lastname}</h5>
-                                                    <span className={`badge ${user.role?.rol_name === 'Admin' ? 'bg-danger' : 'bg-success'} bg-opacity-10 text-${user.role?.rol_name === 'Admin' ? 'danger' : 'success'} border border-${user.role?.rol_name === 'Admin' ? 'danger' : 'success'} border-opacity-25`} style={{ fontSize: '0.65rem' }}>
+                                                    <span className={`badge ${clasesBadgeRol(user.role?.rol_name)} bg-opacity-10 border border-opacity-25`} style={{ fontSize: '0.65rem' }}>
                                                         {user.role?.rol_name}
                                                     </span>
                                                 </div>
@@ -567,14 +577,23 @@ const handleCancelEdit = () => {
                                                     <span className="material-symbols-outlined">mail</span>
                                                     <span className="text-truncate">{user.user_email}</span>
                                                 </div>
-                                                <div className="user-info-item">
-                                                    <span className="material-symbols-outlined">groups</span>
-                                                    <span className="text-truncate">Ficha: {user.user_coursenumber || '—'}</span>
-                                                </div>
-                                                <div className="user-info-item">
-                                                    <span className="material-symbols-outlined">school</span>
-                                                    <span className="text-truncate">{user.user_program || 'Sin programa'}</span>
-                                                </div>
+                                                {String(user.role?.rol_name || '').toLowerCase() === 'funcionario' ? (
+                                                    <div className="user-info-item">
+                                                        <span className="material-symbols-outlined">badge</span>
+                                                        <span className="text-truncate">Área: {user.user_program || '—'}</span>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <div className="user-info-item">
+                                                            <span className="material-symbols-outlined">groups</span>
+                                                            <span className="text-truncate">Ficha: {user.user_coursenumber || '—'}</span>
+                                                        </div>
+                                                        <div className="user-info-item">
+                                                            <span className="material-symbols-outlined">school</span>
+                                                            <span className="text-truncate">{user.user_program || 'Sin programa'}</span>
+                                                        </div>
+                                                    </>
+                                                )}
                                                 {user.user_telefono && (
                                                     <div className="user-info-item">
                                                         <span className="material-symbols-outlined">call</span>

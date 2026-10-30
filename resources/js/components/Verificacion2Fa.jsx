@@ -5,24 +5,25 @@ import Footer from './Footer';
 import BotonTema from './BotonTema';
 import { showAlert } from './CustomAlert';
 import { decidirRutaPorRol } from '../utils/sesion';
+import { guardarSesion, borrarReto2Fa, getReto2Fa } from '../utils/auth';
 
 // Guarda la sesión entregada por validar-codigo o por el polling de estado.
+// Queda solo en esta pestaña (utils/auth.js).
 const guardarSesion2Fa = (data) => {
-    localStorage.setItem('access_token', data.access_token);
-    localStorage.setItem('user_role', data.role);
-    localStorage.removeItem('2fa_challenge_id');
+    guardarSesion(data.access_token, data.role);
+    borrarReto2Fa();
 };
 
 // Redirige al panel según rol y a la puerta solo si aún no marcó la Entrada
 // de hoy (misma regla que el login normal, en utils/sesion.js).
-const redirigirPorRol = async (role, token, navigate) => {
+const redirigirPorRol = async (role, token) => {
     const ruta = await decidirRutaPorRol(role, token);
-    navigate(ruta, { replace: true });
+    window.location.assign(ruta);
 };
 
 const Verificacion2Fa = () => {
     const navigate = useNavigate();
-    const [challengeId] = useState(() => localStorage.getItem('2fa_challenge_id') || '');
+    const [challengeId] = useState(() => getReto2Fa());
     const [code, setCode] = useState('');
     const [codeErrors, setCodeErrors] = useState('');
     const [generalError, setGeneralError] = useState('');
@@ -36,7 +37,7 @@ const Verificacion2Fa = () => {
     };
 
     const volverAlLogin = () => {
-        localStorage.removeItem('2fa_challenge_id');
+        borrarReto2Fa();
         navigate('/login');
     };
 
@@ -51,7 +52,7 @@ const Verificacion2Fa = () => {
                 if (estado === 'aprobado') {
                     marcarResuelto();
                     guardarSesion2Fa(response.data);
-                    await redirigirPorRol(response.data.role, response.data.access_token, navigate);
+                    await redirigirPorRol(response.data.role, response.data.access_token);
                 } else if (estado === 'rechazado' || estado === 'denegado') {
                     marcarResuelto();
                     setGeneralError('El intento fue rechazado. Vuelve a iniciar sesión.');
@@ -105,7 +106,7 @@ const Verificacion2Fa = () => {
             });
             marcarResuelto();
             guardarSesion2Fa(response.data);
-            await redirigirPorRol(response.data.role, response.data.access_token, navigate);
+            await redirigirPorRol(response.data.role, response.data.access_token);
         } catch (error) {
             if (error.response) {
                 const mensaje = error.response.data.message || 'Código inválido';

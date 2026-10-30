@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { getToken } from '../utils/auth';
+import { limpiarSesionLocal } from '../utils/sesion';
 import Footer from './Footer';
 import Navbar from './Navbar';
 import StatsDashboard from './StatsDashboard';
@@ -56,7 +58,7 @@ const Portero = () => {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const token = localStorage.getItem('access_token');
+                const token = getToken();
                 if (!token) {
                     navigate('/login');
                     return;
@@ -77,8 +79,7 @@ const Portero = () => {
             } catch (error) {
                 console.error('Error cargando datos: ', error);
                 if (error.response && (error.response.status === 401 || error.response.status === 403)) {
-                    localStorage.removeItem('access_token');
-                    localStorage.removeItem('user_role');
+                    limpiarSesionLocal();
                     navigate('/login');
                 } else {
                     showAlert(mensajeDeError(error, 'No se pudieron cargar los datos del panel.'), 'error');

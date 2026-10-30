@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { getToken } from '../utils/auth';
+import { limpiarSesionLocal } from '../utils/sesion';
 import Footer from './Footer';
 import Navbar from './Navbar';
 import Novedades from './Novedades';
@@ -55,7 +57,7 @@ const Instructor = () => {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const token = localStorage.getItem('access_token');
+                const token = getToken();
                 if (!token) {
                     navigate('/login');
                     return;
@@ -72,8 +74,7 @@ const Instructor = () => {
             } catch (error) {
                 console.error('Error cargando datos: ', error);
                 if (error.response && error.response.status === 401) {
-                    localStorage.removeItem('access_token');
-                    localStorage.removeItem('user_role');
+                    limpiarSesionLocal();
                     navigate('/login');
                 } else {
                     // La API ya explica el problema (por ejemplo, limite de
