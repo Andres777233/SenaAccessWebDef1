@@ -20,7 +20,7 @@ class DatabaseSeeder extends Seeder
         Role::firstOrCreate(['rol_name' => 'Invitado']);
         Role::firstOrCreate(['rol_name' => 'Admin']);
 
-        // Credenciales de prueba documentadas en AGENTS.md (password: 12345678)
+        // Credenciales de prueba documentadas en CREDENCIALES.md (password: 12345678)
         // 6 cuentas para login con password: 123456 (instructores + aprendices)
         $clave123456 = [
             'alejandro@sena.edu.co',

@@ -4,11 +4,10 @@ import axios from 'axios';
 import Footer from './Footer';
 import BotonTema from './BotonTema';
 import { showAlert } from './CustomAlert';
-import { decidirRutaPorRol } from '../utils/sesion';
+import { decidirRutaPorRol, limpiarSesionLocal } from '../utils/sesion';
 import { guardarSesion, borrarReto2Fa, getReto2Fa } from '../utils/auth';
 
 // Guarda la sesión entregada por validar-codigo o por el polling de estado.
-// Queda solo en esta pestaña (utils/auth.js).
 const guardarSesion2Fa = (data) => {
     guardarSesion(data.access_token, data.role);
     borrarReto2Fa();
@@ -16,15 +15,19 @@ const guardarSesion2Fa = (data) => {
 
 // Redirige al panel según rol y a la puerta solo si aún no marcó la Entrada
 // de hoy (misma regla que el login normal, en utils/sesion.js).
-const redirigirPorRol = async (role, token) => {
+const redirigirPorRol = async (role, token, navigate) => {
     const ruta = await decidirRutaPorRol(role, token);
-    window.location.assign(ruta);
+    navigate(ruta, { replace: true });
 };
 
 const Verificacion2Fa = () => {
     const navigate = useNavigate();
     const [challengeId] = useState(() => getReto2Fa());
     const [code, setCode] = useState('');
+    // Pista del correo (j***@sena.edu.co) y control del reenvío del código.
+    const [pista, setPista] = useState(() => sessionStorage.getItem('2fa_hint') || '');
+    const [reenviando, setReenviando] = useState(false);
+    const [esperaReenvio, setEsperaReenvio] = useState(0);
     const [codeErrors, setCodeErrors] = useState('');
     const [generalError, setGeneralError] = useState('');
     const [loading, setLoading] = useState(false);
@@ -36,8 +39,39 @@ const Verificacion2Fa = () => {
         setResuelto(true);
     };
 
+    // Cuenta regresiva del botón "reenviar código".
+    useEffect(() => {
+        if (esperaReenvio <= 0) return;
+        const id = setInterval(() => setEsperaReenvio((s) => (s > 0 ? s - 1 : 0)), 1000);
+        return () => clearInterval(id);
+    }, [esperaReenvio]);
+
+    // Pide un código nuevo al servidor (1 por minuto por reto).
+    const reenviarCodigo = async () => {
+        if (!challengeId || reenviando || esperaReenvio > 0) return;
+        setReenviando(true);
+        try {
+            const response = await axios.post('/api/2fa/reenviar', { challenge_id: challengeId });
+            if (response.data.email_hint) {
+                setPista(response.data.email_hint);
+                sessionStorage.setItem('2fa_hint', response.data.email_hint);
+            }
+            setEsperaReenvio(response.data.segundos_para_reenvio || 60);
+            setCodeErrors('');
+            showAlert(response.data.message || 'Código reenviado.');
+        } catch (error) {
+            const espera = error.response?.data?.segundos_para_reenvio;
+            if (espera) setEsperaReenvio(espera);
+            showAlert(error.response?.data?.message || 'No se pudo reenviar el código.', 'error');
+        } finally {
+            setReenviando(false);
+        }
+    };
+
     const volverAlLogin = () => {
-        borrarReto2Fa();
+        // Abandonar el reto también cierra cualquier sesión vieja que hubiera
+        // quedado en el navegador: no se puede volver al panel anterior.
+        limpiarSesionLocal();
         navigate('/login');
     };
 
@@ -52,7 +86,7 @@ const Verificacion2Fa = () => {
                 if (estado === 'aprobado') {
                     marcarResuelto();
                     guardarSesion2Fa(response.data);
-                    await redirigirPorRol(response.data.role, response.data.access_token);
+                    await redirigirPorRol(response.data.role, response.data.access_token, navigate);
                 } else if (estado === 'rechazado' || estado === 'denegado') {
                     marcarResuelto();
                     setGeneralError('El intento fue rechazado. Vuelve a iniciar sesión.');
@@ -106,7 +140,7 @@ const Verificacion2Fa = () => {
             });
             marcarResuelto();
             guardarSesion2Fa(response.data);
-            await redirigirPorRol(response.data.role, response.data.access_token);
+            await redirigirPorRol(response.data.role, response.data.access_token, navigate);
         } catch (error) {
             if (error.response) {
                 const mensaje = error.response.data.message || 'Código inválido';
@@ -137,7 +171,9 @@ const Verificacion2Fa = () => {
                 <img src="/Icons/logoSena.png" className="logosena mb-3" alt="Logo SENA" style={{ width: '72px' }} />
                 <p className="eyebrow-2fa">Segundo paso</p>
                 <h2 className="fw-bold mb-1">Verificación en dos pasos</h2>
-                <p className="mt-2 small opacity-75">Te enviamos un código de 6 dígitos a tu correo.</p>
+                <p className="mt-2 small opacity-75">
+                    Te enviamos un código de 6 dígitos {pista ? <>a <strong>{pista}</strong></> : 'a tu correo'}.
+                </p>
 
                 {generalError && (
                     <div className="alert alert-danger mt-3" role="alert">{generalError}</div>
@@ -159,6 +195,17 @@ const Verificacion2Fa = () => {
                             aria-label="Código de 6 dígitos"
                         />
                         {codeErrors && <div className="text-danger small mt-2">{codeErrors}</div>}
+
+                        <button
+                            type="button"
+                            className="btn btn-link text-success small mt-2 text-decoration-none"
+                            onClick={reenviarCodigo}
+                            disabled={reenviando || esperaReenvio > 0}
+                        >
+                            {reenviando ? 'ENVIANDO…'
+                                : esperaReenvio > 0 ? `REENVIAR CÓDIGO EN ${esperaReenvio}s`
+                                    : 'REENVIAR CÓDIGO'}
+                        </button>
 
                         <button className="btn btn-glow btn-primary-login w-100 fw-bold py-3 mt-4 btn-press" type="submit" disabled={loading || code.length !== 6}>
                             {loading ? 'VERIFICANDO...' : 'VERIFICAR'}

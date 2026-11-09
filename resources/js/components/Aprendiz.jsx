@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { getToken } from '../utils/auth';
-import { limpiarSesionLocal } from '../utils/sesion';
 import Footer from './Footer';
 import Navbar from './Navbar';
 import StatsDashboard from './StatsDashboard';
@@ -19,6 +17,8 @@ import { showAlert } from './CustomAlert';
 import downloadComprobante from '../utils/comprobante';
 import { descargarArchivo, nombreExportado } from '../utils/exportar';
 import { mensajeDeError } from '../utils/mensajes';
+import { corregirRolDePanel, limpiarSesionLocal } from '../utils/sesion';
+import { getToken } from '../utils/auth';
 
 const diaBogota = (valor) => {
     try {
@@ -35,10 +35,11 @@ const diaBogota = (valor) => {
 
 const Aprendiz = ({ rol }) => {
     const navigate = useNavigate();
+    // El mismo panel sirve al aprendiz y al funcionario (/funcionario). El
+    // funcionario es personal administrativo: no tiene ficha de formación ni
+    // permisos/excusas, pero sí carnet, historial, equipos y perfil.
     const [currentUser, setCurrentUser] = useState(null);
-    // El funcionario usa este mismo panel con rol="funcionario": sin ficha de
-    // formación ni permisos/excusas (es personal administrativo).
-    const esFuncionario = ((rol || '') || (currentUser?.role?.rol_name || '')).toLowerCase() === 'funcionario';
+    const esFuncionario = ((rol || '').toLowerCase() || (currentUser?.role?.rol_name || '').toLowerCase()) === 'funcionario';
     const [view, setView] = useState('dashboard'); // 'dashboard', 'comprobantes', 'profile'
     const [ingresos, setIngresos] = useState([]);
     const [equipmentList, setEquipmentList] = useState([]);
@@ -63,12 +64,15 @@ const Aprendiz = ({ rol }) => {
                     return;
                 }
 
-                const [userMeResponse, ingresosResponse, equipmentResponse] = await Promise.all([ // Realiza múltiples solicitudes al backend para obtener la información del usuario, sus ingresos y los equipos registrados, utilizando Promise.all para optimizar la carga de datos y reducir el tiempo de espera
-                    axios.get('/api/user'),
+                // Primero se valida el rol real; después se piden los datos del
+                // panel. Así una sesión vieja de otro rol no pinta ni consulta
+                // endpoints que no le corresponden.
+                const userMeResponse = await axios.get('/api/user');
+                if (!corregirRolDePanel(userMeResponse.data, esFuncionario ? 'funcionario' : 'aprendiz', navigate)) return;
+                const [ingresosResponse, equipmentResponse] = await Promise.all([
                     axios.get('/api/my-ingresos'),
                     axios.get('/api/my-equipment')
                 ]);
-
                 setCurrentUser(userMeResponse.data);
                 setIngresos(ingresosResponse.data);
                 setEquipmentList(equipmentResponse.data);
@@ -409,6 +413,14 @@ const Aprendiz = ({ rol }) => {
         { label: 'Salida QR', icon: 'qr_code_scanner', view: 'escanear_acceso' }
     ];
 
+    // Tocar una notificación lleva a la vista correspondiente del aprendiz.
+    const abrirNotificacion = (notificacion) => {
+        const tipo = notificacion?.notification_type;
+        setEditingProfile(false);
+        if (tipo === 'equipo') setView('comprobantes');
+        else if (tipo === 'seguridad') setView('profile');
+    };
+
     return ( // Estructura principal
         <div className="min-vh-100 d-flex flex-column fade-in-up" style={{ background: 'transparent' }}>
             <Navbar
@@ -419,6 +431,7 @@ const Aprendiz = ({ rol }) => {
                     setEditingProfile(false);
                 }}
                 links={aprendizLinks}
+                onAbrirNotificacion={abrirNotificacion}
             />
 
             <main className="container-fluid px-3 px-md-5 py-2 flex-grow-1">

@@ -1,23 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { getToken, getUsuario, guardarUsuario } from '../utils/auth';
-
-// Color del badge del rol: el Funcionario usa el tono primario para
-// distinguirlo de aprendiz/instructor (verde) y de portería (rojo).
-const clasesBadgeRol = (rol) => {
-    const r = String(rol || '').toLowerCase();
-    if (r === 'admin' || r === 'portero') return 'bg-danger text-danger border-danger';
-    if (r === 'funcionario') return 'bg-primary text-primary border-primary';
-    return 'bg-success text-success border-success';
-};
-import { limpiarSesionLocal } from '../utils/sesion';
 import Footer from './Footer';
 import Navbar from './Navbar';
 import Novedades from './Novedades';
 import StatsDashboard from './StatsDashboard';
 import Ambientes from './Ambientes';
-import AccesoQr from './AccesoQr';
 import DosPasos from './DosPasos';
 import MiHuella from './MiHuella';
 import SimulacionHuella from './SimulacionHuella';
@@ -25,6 +13,8 @@ import PerfilSena from './PerfilSena';
 import EditarMiPerfil from './EditarMiPerfil';
 import { showAlert, showConfirm } from './CustomAlert';
 import { mensajeDeError } from '../utils/mensajes';
+import { corregirRolDePanel, limpiarSesionLocal } from '../utils/sesion';
+import { getToken, getUsuario, guardarUsuario } from '../utils/auth';
 
 // Usuario de la última sesión: permite pintar el panel al instante y
 // refrescarlo con /api/user en segundo plano.
@@ -36,13 +26,22 @@ const usuarioGuardado = () => {
     }
 };
 
+// Una cuenta es invitada por su rol o, en datos viejos, por el correo que
+// genera /register-guest. Sirve para no mostrarla como aprendiz ni pedirle
+// ficha/programa que nunca tuvo.
+const esCuentaInvitado = (user) => {
+    const rol = String(user?.role?.rol_name || '').trim().toLowerCase();
+    const email = String(user?.user_email || '').trim().toLowerCase();
+    return rol === 'invitado' || rol === 'visitante' || rol === 'guest' || email.startsWith('guest_');
+};
+
 const Admin = () => {
     // HOOK: useNavigate se emplea para redirigir al Login si el usuario no tiene una sesión activa o el token expira.
     const navigate = useNavigate();
     const userFormRef = useRef(null);
     // HOOK: useState se utiliza de forma intensiva para mantener el estado de la aplicación: usuario logueado, la vista renderizada en el panel, listas de datos desde la API y estados de carga.
     const [currentUser, setCurrentUser] = useState(usuarioGuardado);
-    const [view, setView] = useState('dashboard'); // 'dashboard', 'users', 'ambientes', 'acceso_qr', 'profile'
+    const [view, setView] = useState('dashboard'); // 'dashboard', 'users', 'ambientes', 'profile'
     const [userFilter, setUserFilter] = useState('all'); // 'all', 'Instructor', 'Aprendiz'
     // Página actual del carrusel de usuarios (paginada en servidor).
     const [usuariosPagina, setUsuariosPagina] = useState([]);
@@ -169,6 +168,9 @@ const Admin = () => {
 
             try {
                 const userMe = await axios.get('/api/user');
+                // Si la sesión real no es de superadmin, se redirige a su panel
+                // (una pestaña vieja no puede quedarse en /admin con otro rol).
+                if (!corregirRolDePanel(userMe.data, 'superadmin', navigate)) return;
                 setCurrentUser(userMe.data);
                 guardarUsuario(userMe.data);
                 const datosRoles = await rolesP;
@@ -359,6 +361,26 @@ const handleCancelEdit = () => {
         }
     };
 
+    // Tocar una notificación lleva a la vista que el superadmin debe revisar.
+    const abrirNotificacion = (notificacion) => {
+        const tipo = notificacion?.notification_type;
+        setEditingUser(null);
+        setCreatingUser(false);
+        setEditingProfile(false);
+        if (tipo === 'cuenta_pendiente') {
+            setSearchTermUsers('');
+            setUsersSearchDeb('');
+            setUsuariosPag(1);
+            usuariosPagRef.current = 1;
+            setUserFilter('pendientes');
+            setView('users');
+        } else if (tipo === 'novedad') {
+            setView('novedad_historial');
+        } else if (tipo === 'seguridad') {
+            setView('profile');
+        }
+    };
+
     if (loading) {
         return (
             <div className="app-cargando">
@@ -530,7 +552,7 @@ const handleCancelEdit = () => {
                                             { key: 'pendientes', label: 'Pendientes' },
                                             { key: 'Instructor', label: 'Instructores' },
                                             { key: 'Aprendiz', label: 'Aprendices' },
-                                                { key: 'Funcionario', label: 'Funcionarios' },
+                                            { key: 'Funcionario', label: 'Funcionarios' },
                                             { key: 'Admin', label: 'Admins' },
                                             { key: 'Invitado', label: 'Invitados' }
                                         ].map(f => (
@@ -546,11 +568,30 @@ const handleCancelEdit = () => {
                                                 )}
                                             </button>
                                         ))}
+                                        {(userFilter !== 'all' || searchTermUsers) && (
+                                            <button
+                                                type="button"
+                                                className="chip-sena"
+                                                onClick={() => {
+                                                    setUserFilter('all');
+                                                    setSearchTermUsers('');
+                                                    setUsuariosPag(1);
+                                                    usuariosPagRef.current = 1;
+                                                }}
+                                            >
+                                                Limpiar
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
 
                                 <div className="grid-usuarios px-3 px-md-4">
-                                    {filteredUsers.length > 0 ? filteredUsers.map(user => (
+                                    {filteredUsers.length > 0 ? filteredUsers.map(user => {
+                                        const invitado = esCuentaInvitado(user);
+                                        const rolVisible = invitado ? 'Invitado' : (user.role?.rol_name || '—');
+                                        const esFuncionario = String(user.role?.rol_name || '').toLowerCase() === 'funcionario';
+                                        const tonoRol = invitado ? 'warning' : user.role?.rol_name === 'Admin' ? 'danger' : (esFuncionario ? 'primary' : 'success');
+                                        return (
                                         <article key={user.id_usuario} className="user-card-new glass-box">
                                             <div className="user-card-header">
                                                 <div className="user-avatar-lg overflow-hidden">
@@ -562,8 +603,8 @@ const handleCancelEdit = () => {
                                                 </div>
                                                 <div className="user-card-identidad">
                                                     <h5 className="mb-1 text-truncate">{user.user_name} {user.user_lastname}</h5>
-                                                    <span className={`badge ${clasesBadgeRol(user.role?.rol_name)} bg-opacity-10 border border-opacity-25`} style={{ fontSize: '0.65rem' }}>
-                                                        {user.role?.rol_name}
+                                                    <span className={`badge bg-${tonoRol} bg-opacity-10 text-${tonoRol} border border-${tonoRol} border-opacity-25`} style={{ fontSize: '0.65rem' }}>
+                                                        {rolVisible}
                                                     </span>
                                                 </div>
                                             </div>
@@ -577,21 +618,30 @@ const handleCancelEdit = () => {
                                                     <span className="material-symbols-outlined">mail</span>
                                                     <span className="text-truncate">{user.user_email}</span>
                                                 </div>
-                                                {String(user.role?.rol_name || '').toLowerCase() === 'funcionario' ? (
+                                                {invitado ? (
                                                     <div className="user-info-item">
-                                                        <span className="material-symbols-outlined">badge</span>
-                                                        <span className="text-truncate">Área: {user.user_program || '—'}</span>
+                                                        <span className="material-symbols-outlined">qr_code_2</span>
+                                                        <span className="text-truncate">Invitado temporal con QR de un uso</span>
                                                     </div>
                                                 ) : (
                                                     <>
-                                                        <div className="user-info-item">
-                                                            <span className="material-symbols-outlined">groups</span>
-                                                            <span className="text-truncate">Ficha: {user.user_coursenumber || '—'}</span>
-                                                        </div>
-                                                        <div className="user-info-item">
-                                                            <span className="material-symbols-outlined">school</span>
-                                                            <span className="text-truncate">{user.user_program || 'Sin programa'}</span>
-                                                        </div>
+                                                        {esFuncionario ? (
+                                                            <div className="user-info-item">
+                                                                <span className="material-symbols-outlined">badge</span>
+                                                                <span className="text-truncate">Área: {user.user_program || '—'}</span>
+                                                            </div>
+                                                        ) : (
+                                                            <>
+                                                                <div className="user-info-item">
+                                                                    <span className="material-symbols-outlined">groups</span>
+                                                                    <span className="text-truncate">Ficha: {user.user_coursenumber || '—'}</span>
+                                                                </div>
+                                                                <div className="user-info-item">
+                                                                    <span className="material-symbols-outlined">school</span>
+                                                                    <span className="text-truncate">{user.user_program || 'Sin programa'}</span>
+                                                                </div>
+                                                            </>
+                                                        )}
                                                     </>
                                                 )}
                                                 {user.user_telefono && (
@@ -624,7 +674,8 @@ const handleCancelEdit = () => {
                                                 )}
                                             </div>
                                         </article>
-                                    )) : (
+                                        );
+                                    }) : (
                                         <div className="estado-vacio">
                                             <span className="material-symbols-outlined">person_off</span>
                                             <p className="mb-0">No se encontraron usuarios con esos filtros.</p>
@@ -657,8 +708,6 @@ const handleCancelEdit = () => {
                 );
             case 'ambientes':
                 return <Ambientes currentUser={currentUser} rol="superadmin" />;
-            case 'acceso_qr':
-                return <AccesoQr />;
             case 'profile':
                 if (editingProfile) {
                     return (
@@ -690,14 +739,13 @@ const handleCancelEdit = () => {
         }
     };
 
-    // Nav del superadmin: gestión de usuarios, ambientes y novedades, más el
-    // QR de acceso que se genera desde la web. Sin vistas de portería.
+    // Nav del superadmin: gestión de usuarios, ambientes y novedades.
+    // El QR de portería es exclusivo del rol admin operativo.
     const adminLinks = [
         { label: 'Inicio', icon: 'dashboard', view: 'dashboard' },
         { label: 'Novedades', icon: 'report_problem', view: 'novedad_historial' },
         { label: 'Usuarios', icon: 'group', view: 'users', filter: 'all' },
-        { label: 'Ambientes', icon: 'meeting_room', view: 'ambientes' },
-        { label: 'Acceso QR', icon: 'qr_code_2', view: 'acceso_qr' }
+        { label: 'Ambientes', icon: 'meeting_room', view: 'ambientes' }
     ];
 
     return (
@@ -709,6 +757,7 @@ const handleCancelEdit = () => {
                 userFilter={userFilter}
                 setUserFilter={setUserFilter}
                 links={adminLinks}
+                onAbrirNotificacion={abrirNotificacion}
             />
 
             <main className="container-fluid px-3 px-md-5 py-2 flex-grow-1">

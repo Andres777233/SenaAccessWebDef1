@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { getToken } from '../utils/auth';
-import { limpiarSesionLocal } from '../utils/sesion';
 import Footer from './Footer';
 import Navbar from './Navbar';
 import Novedades from './Novedades';
@@ -22,6 +20,8 @@ import { showAlert } from './CustomAlert';
 import downloadComprobante from '../utils/comprobante';
 import { descargarArchivo, nombreExportado } from '../utils/exportar';
 import { mensajeDeError } from '../utils/mensajes';
+import { corregirRolDePanel, limpiarSesionLocal } from '../utils/sesion';
+import { getToken } from '../utils/auth';
 
 const diaBogota = (valor) => {
     try {
@@ -63,9 +63,12 @@ const Instructor = () => {
                     return;
                 }
 
-                const [ingresosResponse, userMeResponse, myEquipmentResponse] = await Promise.all([
+                // Primero se valida el rol real; después se piden los datos del
+                // panel. Evita pintar este panel con una sesión vieja de otro rol.
+                const userMeResponse = await axios.get('/api/user');
+                if (!corregirRolDePanel(userMeResponse.data, 'instructor', navigate)) return;
+                const [ingresosResponse, myEquipmentResponse] = await Promise.all([
                     axios.get('/api/my-ingresos'),
-                    axios.get('/api/user'),
                     axios.get('/api/my-equipment')
                 ]);
                 setIngresos(ingresosResponse.data);
@@ -395,14 +398,29 @@ const Instructor = () => {
         { label: 'Salida QR', icon: 'qr_code_scanner', view: 'escanear_acceso' }
     ];
 
+    // Tocar una notificación lleva a la vista correspondiente del instructor.
+    const abrirNotificacion = (notificacion) => {
+        const tipo = notificacion?.notification_type;
+        setEditingProfile(false);
+        if (tipo === 'novedad') setView('novedad_historial');
+        else if (tipo === 'equipo') setView('mis_equipos');
+        else if (tipo === 'seguridad') setView('profile');
+    };
+
     if (loading) return <div className="text-white text-center mt-5">Cargando...</div>;
 
     return (
         <div className="min-vh-100 d-flex flex-column fade-in-up">
-            <Navbar currentUser={currentUser} view={view} setView={(newView) => {
-                setView(newView);
-                setEditingProfile(false);
-            }} links={instructorLinks} />
+            <Navbar
+                currentUser={currentUser}
+                view={view}
+                setView={(newView) => {
+                    setView(newView);
+                    setEditingProfile(false);
+                }}
+                links={instructorLinks}
+                onAbrirNotificacion={abrirNotificacion}
+            />
             <main className="container-fluid px-3 px-md-5 py-4 flex-grow-1">{renderView()}</main>
             <Footer />
             <ModalExportar
